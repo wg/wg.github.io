@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Go on Code</title>
+    <link>https://wg.github.io/tags/go/index.xml</link>
+    <description>Recent content in Go on Code</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <atom:link href="https://wg.github.io/tags/go/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Rust and Go</title>
+      <link>https://wg.github.io/2017/01/rust-and-go/</link>
+      <pubDate>Fri, 20 Jan 2017 17:27:13 +0900</pubDate>
+      
+      <guid>https://wg.github.io/2017/01/rust-and-go/</guid>
+      <description>
+
+&lt;p&gt;A new era of statically typed, natively compiled, programming languages has
+arrived sweeping aside the old choice between performance and productivity
+while also eliminating runtime dependencies on an interpreter or VM. Two of
+the top contenders are Rust and Go, how does a programmer choose between
+them?&lt;/p&gt;
+
+&lt;p&gt;For some applications the choice is simple. Go&amp;rsquo;s lightweight concurrency
+and excellent networking libraries make implementing high-performance
+network clients and servers a joy. Rust lacks GC and a runtime, making it
+more suitable for shared libraries that may be linked into programs
+written in other languages.&lt;/p&gt;
+
+&lt;p&gt;Rust is a much more complicated language than Go, with foreign concepts
+such as ownership, borrowing, and lifetimes that make the learning curve
+quite steep. However I&amp;rsquo;ll argue that it&amp;rsquo;s well worth learning and that
+Rust is an excellent language for writing clear, concise, high-level code.&lt;/p&gt;
+
+&lt;h2 id=&#34;code&#34;&gt;Code&lt;/h2&gt;
+
+&lt;p&gt;A common programming task is iterating through a stream of values and
+grouping them in a hash table according to some logic. Here are two
+programs that iterate the range of unsigned integers between 1 and 128,
+keeping track of the minimum, maximum, and last 4 values of the even
+and odd numbers.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+use std::cmp::{min, max};
+use std::collections::HashMap;
+use std::u32;
+
+struct Stats {
+    min:   u32,
+    max:   u32,
+    last4: [u32; 4],
+}
+
+fn main() {
+    let mut map = HashMap::new();
+
+    for i in 1..129 {
+        let key = i % 2 == 0;
+        let stats = map.entry(key).or_insert_with(|| {
+            Stats {
+                min:   u32::MAX,
+                max:   u32::MIN,
+                last4: [0; 4],
+            }
+        });
+
+        stats.min = min(i, stats.min);
+        stats.max = max(i, stats.max);
+        shift(i, &amp;amp;mut stats.last4[..]);
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+package main
+
+import &amp;#34;fmt&amp;#34;
+import &amp;#34;math&amp;#34;
+
+type Stats struct {
+    min   uint32
+    max   uint32
+    last4 [4]uint32
+}
+
+func main() {
+    smap := map[bool]Stats{}
+
+    for i := uint32(1); i &amp;lt; 129; i&amp;#43;&amp;#43; {
+        key := i%2 == 0
+        stats, ok := smap[key]
+        if !ok {
+            stats = Stats{
+                min: math.MaxUint32,
+            }
+        }
+
+        if i &amp;lt; stats.min {
+            stats.min = i
+        }
+
+        if i &amp;gt; stats.max {
+            stats.max = i
+        }
+
+        copy(stats.last4[1:], stats.last4[0:])
+        stats.last4[0] = i
+
+        smap[key] = stats
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;The structure of both programs is quite similar. The Rust one appears
+significantly shorter but I&amp;rsquo;m cheating and left out the definition of
+the &lt;code&gt;shift()&lt;/code&gt; function which isn&amp;rsquo;t built-in. I&amp;rsquo;ll come back to that
+in a bit.&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn shift&amp;lt;T: Copy&amp;gt;(n: T, slice: &amp;amp;mut [T]) {
+    if slice.len() &amp;gt; 0 {
+        unsafe {
+            let ptr = slice.as_mut_ptr();
+            std::ptr::copy(ptr, ptr.offset(1), slice.len()-1);
+            *ptr = n;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;h2 id=&#34;hash-map-entries&#34;&gt;Hash map entries&lt;/h2&gt;
+
+&lt;p&gt;The most interesting part of this simple problem is how the program
+handles updating an existing entry or adding a new entry to the map.
+This is a very common pattern and some languages provide elegant APIs
+(&lt;a href=&#34;https://doc.rust-lang.org/beta/std/collections/hash_map/enum.Entry.html#method.or_insert&#34;&gt;Rust&lt;/a&gt;,
+&lt;a href=&#34;https://ruby-doc.org/core-2.2.0/Hash.html#method-c-new&#34;&gt;Ruby&lt;/a&gt;,
+&lt;a href=&#34;https://docs.python.org/2/library/collections.html#collections.defaultdict&#34;&gt;Python&lt;/a&gt;)
+for creating a new value when the key is not present.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+let stats = map.entry(key).or_insert_with(|| {
+    Stats {
+        min:   u32::MAX,
+        max:   u32::MIN,
+        last4: [0; 4],
+    }
+});
+                                               
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+stats, ok := smap[key]
+if !ok {
+    stats = Stats{
+        min: math.MaxUint32,
+    }
+}
+
+...
+                                       
+smap[key] = stats
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;Indexing a Go map always returns a value, initialized to zero if the key
+doesn&amp;rsquo;t exist, and a boolean indicating whether the key exists. This is
+elegant when the zero value is useful without modification and means only
+the &lt;code&gt;min&lt;/code&gt; field needs to be set here. Rust requires explicit initialization
+or use of the &lt;a href=&#34;https://doc.rust-lang.org/std/default/trait.Default.html&#34;&gt;Default&lt;/a&gt;
+trait.&lt;/p&gt;
+
+&lt;p&gt;The Go programmer must remember to copy the new or updated struct back into the
+the map and failure to do so is a common source of bugs. A different approach is
+storing &lt;code&gt;*Stats&lt;/code&gt; pointers which eliminates the final map assignment and copy but
+results in structs scattered throughout the heap rather than in a contiguous
+array which is much more efficient.&lt;/p&gt;
+
+&lt;p&gt;The Rust code uses the &lt;a href=&#34;https://doc.rust-lang.org/beta/std/collections/hash_map/enum.Entry.html&#34;&gt;Entry&lt;/a&gt;
+API to return a reference to either the existing, or newly inserted,
+map entry which can be mutated directly. This eliminates the need to choose
+between copies or storing pointers.&lt;/p&gt;
+
+&lt;p&gt;Go does not allow taking a reference to a map entry because the
+reference may become invalid when the map is modified. Rust&amp;rsquo;s
+ownership system ensures that the map cannot be modified while
+holding a reference to an entry.&lt;/p&gt;
+
+&lt;h2 id=&#34;min-max&#34;&gt;Min &amp;amp; max&lt;/h2&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+stats.min = min(i, stats.min);
+stats.max = max(i, stats.max);
+                                 
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+if i &amp;lt; stats.min {
+    stats.min = i
+}
+
+if i &amp;gt; stats.max {
+    stats.max = i
+}
+                                 
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;Go lacks generics so the &lt;code&gt;math.Min&lt;/code&gt; and &lt;code&gt;math.Max&lt;/code&gt; functions are
+only defined for &lt;code&gt;float64&lt;/code&gt;. The programmer must manually implement
+variants for every type or use the more verbose &lt;code&gt;if&lt;/code&gt; statements.
+Rust supports min, max, and other comparisons on any type that
+implements &lt;a href=&#34;https://doc.rust-lang.org/std/cmp/trait.Ord.html&#34;&gt;Ord&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;copy-shift&#34;&gt;Copy &amp;amp; shift&lt;/h2&gt;
+
+&lt;p&gt;Rust has no safe equivalent of Go&amp;rsquo;s &lt;code&gt;copy()&lt;/code&gt; function so the code
+must resort to an unsafe block to shift the first three elements
+of the slice over and assign the newest element to index zero.
+Alternatively the code could have used a temporary array to perform
+the shift safely at the cost of two copies.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+shift(i, &amp;amp;mut stats.last4[..]);
+
+...
+
+fn shift&amp;lt;T: Copy&amp;gt;(n: T, slice: &amp;amp;mut [T]) {
+    if slice.len() &amp;gt; 0 {
+        unsafe {
+            let ptr = slice.as_mut_ptr();
+            std::ptr::copy(ptr, ptr.offset(1), slice.len()-1);
+            *ptr = n;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+copy(stats.last4[1:], stats.last4[0:])
+stats.last4[0] = i
+                                       
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;The &lt;code&gt;shift()&lt;/code&gt; function is simple and with generics need only be
+written once but calls an unsafe function that could cause memory
+corruption if the pointer offset or count calculations are incorrect.
+An earlier version did not contain the &lt;code&gt;if slice.len() &amp;gt; 0&lt;/code&gt; check
+which led to panics in debug mode and memory corruption in release
+mode due to unsigned integer wraparound when passed a  zero-length
+slice.&lt;/p&gt;
+
+&lt;h2 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;The two programs shown here illustrate a common programming task but
+are very simple and do not really play to the strengths of either
+language. In my opinion Rust comes out ahead due its rich collections
+API, ownership allowing safe mutable references, and generics. Rust
+is not a small or simple language but the complexity serves a purpose
+in delivering a language with the performance characteristics of
+low-level languages and the expressiveness of high-level languages.&lt;/p&gt;
+
+&lt;p&gt;In my opinion Rust code will generally be more clear and concise than
+the equivalent solution in Go. The &lt;code&gt;min&lt;/code&gt;, &lt;code&gt;max&lt;/code&gt;, and &lt;code&gt;shift&lt;/code&gt; functions,
+not to mention Rust&amp;rsquo;s &lt;code&gt;try!&lt;/code&gt;/&lt;code&gt;?&lt;/code&gt; vs. Go&amp;rsquo;s &lt;code&gt;if err != nil&lt;/code&gt; pattern,
+demonstrate how generics and macros allow a single implementation of
+common patterns rather than copy &amp;amp; paste.&lt;/p&gt;
+
+&lt;p&gt;Regarding the choice between Rust and Go, I will likely choose Rust by
+default and Go when the solution would benefit from Go&amp;rsquo;s concurrency
+model or richer collection of libraries including those for building
+network clients and servers. In the later case I may even write the
+core of the application in Rust and call into it from Go.&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>

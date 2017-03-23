@@ -1,0 +1,647 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Code</title>
+    <link>https://wg.github.io/index.xml</link>
+    <description>Recent content on Code</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Thu, 23 Mar 2017 01:02:03 +0900</lastBuildDate>
+    <atom:link href="https://wg.github.io/index.xml" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Rust Pecularities</title>
+      <link>https://wg.github.io/2017/03/rust-pecularities/</link>
+      <pubDate>Thu, 23 Mar 2017 01:02:03 +0900</pubDate>
+      
+      <guid>https://wg.github.io/2017/03/rust-pecularities/</guid>
+      <description>
+
+&lt;p&gt;Rust has a number of interesting aspects that I had some difficulty understanding
+as I was learning the language. Whether you find these things peculiar or not
+probably depends on which programming languages you&amp;rsquo;ve spent a good amount of time
+using. My background skews heavily towards garbage-collected imperative languages.&lt;/p&gt;
+
+&lt;h2 id=&#34;trait-objects&#34;&gt;Trait Objects&lt;/h2&gt;
+
+&lt;p&gt;Many statically-typed languages have the concept of a named group of methods or
+functions that any type can implement, interfaces in Java and Go, protocols in
+Objective-C and Swift, etc. In these languages it is common to declare variables,
+method parameters, and struct or class members using these abstract types so that
+any concrete type that implements them can be used in those places.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Go&lt;/th&gt;&lt;th&gt;Java&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+func readabyte(r Reader) (byte, error) {
+	var buf [1]byte
+	_, err := r.Read(buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return buf[0], nil
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-java&#34;&gt;
+byte readabyte(InputStream r) throws IOException {
+    byte[] buf = new byte[1];
+    r.read(buf);
+    return buf[0];
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;Rust&amp;rsquo;s equivalent is the &lt;a href=&#34;https://doc.rust-lang.org/book/traits.html&#34;&gt;trait&lt;/a&gt;.
+However unlike the examples above it is uncommon to use a trait as a type in
+function arguments, struct fields, etc. Instead most Rust code uses generics with
+a trait bound and the compiled code passes an instance of a concrete type that
+implements the trait.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust generics&lt;/th&gt;&lt;th&gt;Rust trait object&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn readabyte&amp;lt;R: Read&amp;gt;(r: &amp;amp;mut R) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+    let mut buf = [0u8; 1];
+    r.read(&amp;amp;mut buf)?;
+    Ok(buf[0])
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn readabyte(r: &amp;amp;mut Read) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+    let mut buf = [0u8; 1];
+    r.read(&amp;amp;mut buf)?;
+    Ok(buf[0])
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;The syntactic difference is somewhat subtle but the runtime difference is significant.
+For the generic version the Rust compiler knows exactly which concrete type is passed
+and can generate a static call to the &lt;code&gt;read&lt;/code&gt; method of that type. For trait objects
+the Rust compiler must generate a vtable and do a dynamic lookup at runtime to find
+the &lt;code&gt;read&lt;/code&gt; method.&lt;/p&gt;
+
+&lt;h2 id=&#34;moves&#34;&gt;Moves&lt;/h2&gt;
+
+&lt;p&gt;In the Go and Java examples the concrete types implementing &lt;code&gt;Reader&lt;/code&gt; or &lt;code&gt;InputStream&lt;/code&gt;
+are copied or passed by reference to the &lt;code&gt;readabyte&lt;/code&gt; functions. However the Rust
+functions require an explicit mutable reference. What happens if we want to pass by
+value rather than by reference?&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn readabyte&amp;lt;R: Read&amp;gt;(mut r: R) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+    let mut buf = [0u8; 1];
+    r.read(&amp;amp;mut buf)?;
+    Ok(buf[0])
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;Rust has &amp;ldquo;move semantics&amp;rdquo; meaning that unless a type implements
+&lt;a href=&#34;https://doc.rust-lang.org/core/marker/trait.Copy.html&#34;&gt;Copy&lt;/a&gt; it will be moved when
+passed by value. In this example the value is moved into the &lt;code&gt;readabyte&lt;/code&gt; function
+which takes ownership of it and
+&lt;a href=&#34;https://doc.rust-lang.org/std/ops/trait.Drop.html&#34;&gt;drops&lt;/a&gt; it at the end of the
+function, providing deterministic destruction.&lt;/p&gt;
+
+&lt;h2 id=&#34;sized&#34;&gt;Sized&lt;/h2&gt;
+
+&lt;p&gt;Moving a value may require generating code that moves it to a different memory
+location which can only be done if the size of the value is known at compile time.
+However traits may be implemented by a type whose size is not known at compile time,
+for example arrays, so the following code will not compile:&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn readabyte(mut r: Read) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+    let mut buf = [0u8; 1];
+    r.read(&amp;amp;mut buf)?;
+    Ok(buf[0])
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+   |
+24 | fn readabyte(mut r: Read) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+   |              ^^^^^ the trait `std::marker::Sized` is not implemented for `std::io::Read &amp;#43; &amp;#39;static`
+   |
+   = note: `std::io::Read &amp;#43; &amp;#39;static` does not have a constant size known at compile-time
+   = note: all local variables must have a statically known size
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;h2 id=&#34;boxes&#34;&gt;Boxes&lt;/h2&gt;
+
+&lt;p&gt;Unsized types cannot be moved but can be owned by a type that is sized, for example
+&lt;a href=&#34;https://doc.rust-lang.org/std/boxed/&#34;&gt;Box&lt;/a&gt; which owns a value allocated on the heap.&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn readabyte(mut r: Box&amp;lt;Read&amp;gt;) -&amp;gt; Result&amp;lt;u8&amp;gt; {
+    let mut buf = [0u8; 1];
+    r.read(&amp;amp;mut buf)?;
+    Ok(buf[0])
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;In this example the Box is moved into &lt;code&gt;readabyte&lt;/code&gt; and when it is dropped it will also drop
+the underlying value of some concrete type that implement &lt;code&gt;Read&lt;/code&gt;.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Rusty Buffers</title>
+      <link>https://wg.github.io/2017/02/rusty-buffers/</link>
+      <pubDate>Tue, 07 Feb 2017 01:02:03 +0900</pubDate>
+      
+      <guid>https://wg.github.io/2017/02/rusty-buffers/</guid>
+      <description>
+
+&lt;p&gt;Rust&amp;rsquo;s ownership system makes it easy and safe to create a zero-copy parser that
+takes a slice of bytes as input and outputs some structure containing references
+to the original input. Rust ensures that such references exist only while the
+underlying slice cannot be mutated.&lt;/p&gt;
+
+&lt;p&gt;As a concrete example say we have a &lt;code&gt;&amp;amp;[u8]&lt;/code&gt; containing
+&lt;code&gt;&amp;ldquo;3foo3bar3baz4quux&amp;rdquo;&lt;/code&gt; and want to parse it into
+&lt;code&gt;vec![&amp;ldquo;foo&amp;rdquo;, &amp;ldquo;bar&amp;rdquo;, &amp;ldquo;baz&amp;rdquo;, &amp;ldquo;quux&amp;rdquo;]&lt;/code&gt;. This is easily accomplished
+by defining a couple of &lt;a href=&#34;https://github.com/Geal/nom&#34;&gt;nom&lt;/a&gt; parser combinators:&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+named!(strings&amp;lt;Vec&amp;lt;&amp;amp;str&amp;gt;&amp;gt;,
+       many0!(map_res!(length_value!(ascii_num, rest), str::from_utf8))
+);
+
+named!(ascii_num&amp;lt;usize&amp;gt;,
+       map_res!(map_res!(take_while!(is_digit), str::from_utf8), usize::from_str)
+);
+
+fn main() {
+    let input  = b&amp;#34;3foo3bar3baz4quux&amp;#34;;
+    let expect = vec![&amp;#34;foo&amp;#34;, &amp;#34;bar&amp;#34;, &amp;#34;baz&amp;#34;, &amp;#34;quux&amp;#34;];
+    let output = strings(input).unwrap().1;
+    assert_eq!(expect, output);
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;In real-world use the input slice may contain only partial data, for example
+&lt;code&gt;&amp;ldquo;3foo3bar3baz4q&amp;rdquo;&lt;/code&gt;, in which case the parser will return
+&lt;code&gt;IResult::Incomplete&lt;/code&gt;. Or it may contain multiple messages, e.g.
+&lt;code&gt;&amp;ldquo;3foo3bar 3baz4quux&amp;rdquo;&lt;/code&gt;, and the parser will return the parsed
+results plus the remaining bytes.&lt;/p&gt;
+
+&lt;h2 id=&#34;buffers&#34;&gt;Buffers&lt;/h2&gt;
+
+&lt;p&gt;If we&amp;rsquo;re reading data from the network into a fixed-size buffer which is passed
+to the parser then we must copy any partial or remaining bytes somewhere else
+before the next read overwrites them. When more data is received it can be
+appended to the existing data and passed to the parser again.&lt;/p&gt;
+
+&lt;p&gt;Copying is expensive so we should parse directly from the input buffer whenever
+possible and only copy when there is existing data that the input must be
+appended to. Here is a &lt;code&gt;Buffer&lt;/code&gt; type containing a Vec to store these
+partial or remaining bytes:&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+pub struct Buffer {
+    vec: Vec&amp;lt;u8&amp;gt;
+}
+
+impl Buffer {
+    pub fn new() -&amp;gt; Buffer {
+        Buffer {
+            vec: Vec::new(),
+        }
+    }
+
+    pub fn buf&amp;lt;&amp;#39;a: &amp;#39;b, &amp;#39;b&amp;gt;(&amp;amp;&amp;#39;a mut self, more: &amp;amp;&amp;#39;b [u8]) -&amp;gt; Buf&amp;lt;&amp;#39;b&amp;gt; {
+        if self.vec.is_empty() {
+            Buf::Empty(&amp;amp;mut self.vec, more)
+        } else {
+            self.vec.extend_from_slice(more);
+            Buf::Some(&amp;amp;mut self.vec)
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;The &lt;code&gt;buf(..)&lt;/code&gt; method is called with a reference to the input buffer
+and returns a &lt;code&gt;Buf&lt;/code&gt; that can be passed to the parser as a
+&lt;code&gt;&amp;amp;[u8]&lt;/code&gt; via the &lt;a href=&#34;https://doc.rust-lang.org/std/ops/trait.Deref.html&#34;&gt;Deref&lt;/a&gt;
+trait. The lifetimes (&lt;code&gt;&amp;lt;&amp;lsquo;a: &amp;lsquo;b, &amp;lsquo;b&amp;gt;&lt;/code&gt;) are a bit gnarly because the
+compiler must be told that the returned &lt;code&gt;Buf&lt;/code&gt; has the same lifetime as
+the input buffer which may be shorter than the lifetime of the &lt;code&gt;Buffer&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;When no partial or remaining bytes have been buffered the &lt;code&gt;Buf&lt;/code&gt;
+simply dereferences to the input buffer directly. However when the internal
+buffer is not empty the input buffer is appended to it and the Buf dereferences
+to that larger buffer.&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+use std::ops::Deref;
+
+pub enum Buf&amp;lt;&amp;#39;a&amp;gt; {
+    Empty(&amp;amp;&amp;#39;a mut Vec&amp;lt;u8&amp;gt;, &amp;amp;&amp;#39;a [u8]),
+    Some(&amp;amp;&amp;#39;a mut Vec&amp;lt;u8&amp;gt;),
+}
+
+
+impl&amp;lt;&amp;#39;a&amp;gt; Buf&amp;lt;&amp;#39;a&amp;gt; {
+    pub fn keep(&amp;amp;mut self, n: usize) {
+        match *self {
+            Buf::Empty(ref mut vec, more) =&amp;gt; {
+                let n = more.len() - n;
+                vec.extend_from_slice(&amp;amp;more[n..]);
+            },
+            Buf::Some(ref mut vec) =&amp;gt; {
+                let n = vec.len() - n;
+                vec.drain(..n);
+            },
+        }
+    }
+}
+
+impl&amp;lt;&amp;#39;a&amp;gt; Deref for Buf&amp;lt;&amp;#39;a&amp;gt; {
+    type Target = [u8];
+    fn deref(&amp;amp;self) -&amp;gt; &amp;amp;[u8] {
+        match *self {
+            Buf::Empty(_, more) =&amp;gt; more,
+            Buf::Some(ref vec)  =&amp;gt; &amp;amp;vec[..],
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;When parsing is complete the &lt;code&gt;keep(..)&lt;/code&gt; method of &lt;code&gt;Buf&lt;/code&gt;
+is called with the number of bytes that have not been consumed. Those bytes are
+retained in the internal buffer for use later.&lt;/p&gt;
+
+&lt;h2 id=&#34;example&#34;&gt;Example&lt;/h2&gt;
+
+&lt;p&gt;Here is an example &lt;code&gt;parse&lt;/code&gt; function that uses &lt;code&gt;Buffer&lt;/code&gt;:&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn parse(buffer: &amp;amp;mut Buffer, b: &amp;amp;[u8]) -&amp;gt; Option&amp;lt;Vec&amp;lt;String&amp;gt;&amp;gt; {
+    let mut buf = buffer.buf(b);
+    let mut res = None;
+    let mut len = buf.len();
+
+    if let IResult::Done(rest, vec) = strings(&amp;amp;buf[..]) {
+        res = Some(vec.into_iter().map(str::to_owned).collect());
+        len = rest.len();
+    }
+    buf.keep(len);
+
+    res
+}
+
+#[test]
+fn test_partial() {
+    let mut buffer = Buffer::new();
+    let input  = b&amp;#34;3foo3bar3baz4q&amp;#34;;
+    let expect = vec![&amp;#34;foo&amp;#34;, &amp;#34;bar&amp;#34;, &amp;#34;baz&amp;#34;, &amp;#34;quux&amp;#34;];
+
+    let res = parse(&amp;amp;mut buffer, input);
+    assert_eq!(None, res);
+
+    let res = parse(&amp;amp;mut buffer, b&amp;#34;uux&amp;#34;).unwrap();
+    assert_eq!(expect, res);
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;p&gt;Note that &lt;code&gt;parse&lt;/code&gt; returns an optional Vec of &lt;code&gt;String&lt;/code&gt;
+not &lt;code&gt;&amp;amp;str&lt;/code&gt;. The lifetime of the return value is longer than the
+lifetime of the &lt;code&gt;Buf&lt;/code&gt; so a copy is necessary. Additionally the
+call to &lt;code&gt;buf.keep(..)&lt;/code&gt; may shrink the buffer, invalidating any
+references to its contents.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Rust and Go</title>
+      <link>https://wg.github.io/2017/01/rust-and-go/</link>
+      <pubDate>Fri, 20 Jan 2017 17:27:13 +0900</pubDate>
+      
+      <guid>https://wg.github.io/2017/01/rust-and-go/</guid>
+      <description>
+
+&lt;p&gt;A new era of statically typed, natively compiled, programming languages has
+arrived sweeping aside the old choice between performance and productivity
+while also eliminating runtime dependencies on an interpreter or VM. Two of
+the top contenders are Rust and Go, how does a programmer choose between
+them?&lt;/p&gt;
+
+&lt;p&gt;For some applications the choice is simple. Go&amp;rsquo;s lightweight concurrency
+and excellent networking libraries make implementing high-performance
+network clients and servers a joy. Rust lacks GC and a runtime, making it
+more suitable for shared libraries that may be linked into programs
+written in other languages.&lt;/p&gt;
+
+&lt;p&gt;Rust is a much more complicated language than Go, with foreign concepts
+such as ownership, borrowing, and lifetimes that make the learning curve
+quite steep. However I&amp;rsquo;ll argue that it&amp;rsquo;s well worth learning and that
+Rust is an excellent language for writing clear, concise, high-level code.&lt;/p&gt;
+
+&lt;h2 id=&#34;code&#34;&gt;Code&lt;/h2&gt;
+
+&lt;p&gt;A common programming task is iterating through a stream of values and
+grouping them in a hash table according to some logic. Here are two
+programs that iterate the range of unsigned integers between 1 and 128,
+keeping track of the minimum, maximum, and last 4 values of the even
+and odd numbers.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+use std::cmp::{min, max};
+use std::collections::HashMap;
+use std::u32;
+
+struct Stats {
+    min:   u32,
+    max:   u32,
+    last4: [u32; 4],
+}
+
+fn main() {
+    let mut map = HashMap::new();
+
+    for i in 1..129 {
+        let key = i % 2 == 0;
+        let stats = map.entry(key).or_insert_with(|| {
+            Stats {
+                min:   u32::MAX,
+                max:   u32::MIN,
+                last4: [0; 4],
+            }
+        });
+
+        stats.min = min(i, stats.min);
+        stats.max = max(i, stats.max);
+        shift(i, &amp;amp;mut stats.last4[..]);
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+package main
+
+import &amp;#34;fmt&amp;#34;
+import &amp;#34;math&amp;#34;
+
+type Stats struct {
+    min   uint32
+    max   uint32
+    last4 [4]uint32
+}
+
+func main() {
+    smap := map[bool]Stats{}
+
+    for i := uint32(1); i &amp;lt; 129; i&amp;#43;&amp;#43; {
+        key := i%2 == 0
+        stats, ok := smap[key]
+        if !ok {
+            stats = Stats{
+                min: math.MaxUint32,
+            }
+        }
+
+        if i &amp;lt; stats.min {
+            stats.min = i
+        }
+
+        if i &amp;gt; stats.max {
+            stats.max = i
+        }
+
+        copy(stats.last4[1:], stats.last4[0:])
+        stats.last4[0] = i
+
+        smap[key] = stats
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;The structure of both programs is quite similar. The Rust one appears
+significantly shorter but I&amp;rsquo;m cheating and left out the definition of
+the &lt;code&gt;shift()&lt;/code&gt; function which isn&amp;rsquo;t built-in. I&amp;rsquo;ll come back to that
+in a bit.&lt;/p&gt;
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+fn shift&amp;lt;T: Copy&amp;gt;(n: T, slice: &amp;amp;mut [T]) {
+    if slice.len() &amp;gt; 0 {
+        unsafe {
+            let ptr = slice.as_mut_ptr();
+            std::ptr::copy(ptr, ptr.offset(1), slice.len()-1);
+            *ptr = n;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;h2 id=&#34;hash-map-entries&#34;&gt;Hash map entries&lt;/h2&gt;
+
+&lt;p&gt;The most interesting part of this simple problem is how the program
+handles updating an existing entry or adding a new entry to the map.
+This is a very common pattern and some languages provide elegant APIs
+(&lt;a href=&#34;https://doc.rust-lang.org/beta/std/collections/hash_map/enum.Entry.html#method.or_insert&#34;&gt;Rust&lt;/a&gt;,
+&lt;a href=&#34;https://ruby-doc.org/core-2.2.0/Hash.html#method-c-new&#34;&gt;Ruby&lt;/a&gt;,
+&lt;a href=&#34;https://docs.python.org/2/library/collections.html#collections.defaultdict&#34;&gt;Python&lt;/a&gt;)
+for creating a new value when the key is not present.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+let stats = map.entry(key).or_insert_with(|| {
+    Stats {
+        min:   u32::MAX,
+        max:   u32::MIN,
+        last4: [0; 4],
+    }
+});
+                                               
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+stats, ok := smap[key]
+if !ok {
+    stats = Stats{
+        min: math.MaxUint32,
+    }
+}
+
+...
+                                       
+smap[key] = stats
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;Indexing a Go map always returns a value, initialized to zero if the key
+doesn&amp;rsquo;t exist, and a boolean indicating whether the key exists. This is
+elegant when the zero value is useful without modification and means only
+the &lt;code&gt;min&lt;/code&gt; field needs to be set here. Rust requires explicit initialization
+or use of the &lt;a href=&#34;https://doc.rust-lang.org/std/default/trait.Default.html&#34;&gt;Default&lt;/a&gt;
+trait.&lt;/p&gt;
+
+&lt;p&gt;The Go programmer must remember to copy the new or updated struct back into the
+the map and failure to do so is a common source of bugs. A different approach is
+storing &lt;code&gt;*Stats&lt;/code&gt; pointers which eliminates the final map assignment and copy but
+results in structs scattered throughout the heap rather than in a contiguous
+array which is much more efficient.&lt;/p&gt;
+
+&lt;p&gt;The Rust code uses the &lt;a href=&#34;https://doc.rust-lang.org/beta/std/collections/hash_map/enum.Entry.html&#34;&gt;Entry&lt;/a&gt;
+API to return a reference to either the existing, or newly inserted,
+map entry which can be mutated directly. This eliminates the need to choose
+between copies or storing pointers.&lt;/p&gt;
+
+&lt;p&gt;Go does not allow taking a reference to a map entry because the
+reference may become invalid when the map is modified. Rust&amp;rsquo;s
+ownership system ensures that the map cannot be modified while
+holding a reference to an entry.&lt;/p&gt;
+
+&lt;h2 id=&#34;min-max&#34;&gt;Min &amp;amp; max&lt;/h2&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+stats.min = min(i, stats.min);
+stats.max = max(i, stats.max);
+                                 
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+if i &amp;lt; stats.min {
+    stats.min = i
+}
+
+if i &amp;gt; stats.max {
+    stats.max = i
+}
+                                 
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;Go lacks generics so the &lt;code&gt;math.Min&lt;/code&gt; and &lt;code&gt;math.Max&lt;/code&gt; functions are
+only defined for &lt;code&gt;float64&lt;/code&gt;. The programmer must manually implement
+variants for every type or use the more verbose &lt;code&gt;if&lt;/code&gt; statements.
+Rust supports min, max, and other comparisons on any type that
+implements &lt;a href=&#34;https://doc.rust-lang.org/std/cmp/trait.Ord.html&#34;&gt;Ord&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;copy-shift&#34;&gt;Copy &amp;amp; shift&lt;/h2&gt;
+
+&lt;p&gt;Rust has no safe equivalent of Go&amp;rsquo;s &lt;code&gt;copy()&lt;/code&gt; function so the code
+must resort to an unsafe block to shift the first three elements
+of the slice over and assign the newest element to index zero.
+Alternatively the code could have used a temporary array to perform
+the shift safely at the cost of two copies.&lt;/p&gt;
+
+&lt;br&gt;
+&lt;table&gt;
+&lt;tr&gt;&lt;th&gt;Rust&lt;/th&gt;&lt;th&gt;Go&lt;/th&gt;&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-rust&#34;&gt;
+shift(i, &amp;amp;mut stats.last4[..]);
+
+...
+
+fn shift&amp;lt;T: Copy&amp;gt;(n: T, slice: &amp;amp;mut [T]) {
+    if slice.len() &amp;gt; 0 {
+        unsafe {
+            let ptr = slice.as_mut_ptr();
+            std::ptr::copy(ptr, ptr.offset(1), slice.len()-1);
+            *ptr = n;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+
+&lt;td valign=&#34;top&#34;&gt;&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+copy(stats.last4[1:], stats.last4[0:])
+stats.last4[0] = i
+                                       
+&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+
+&lt;/tr&gt;
+&lt;/table&gt;
+
+
+
+&lt;p&gt;The &lt;code&gt;shift()&lt;/code&gt; function is simple and with generics need only be
+written once but calls an unsafe function that could cause memory
+corruption if the pointer offset or count calculations are incorrect.
+An earlier version did not contain the &lt;code&gt;if slice.len() &amp;gt; 0&lt;/code&gt; check
+which led to panics in debug mode and memory corruption in release
+mode due to unsigned integer wraparound when passed a  zero-length
+slice.&lt;/p&gt;
+
+&lt;h2 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;The two programs shown here illustrate a common programming task but
+are very simple and do not really play to the strengths of either
+language. In my opinion Rust comes out ahead due its rich collections
+API, ownership allowing safe mutable references, and generics. Rust
+is not a small or simple language but the complexity serves a purpose
+in delivering a language with the performance characteristics of
+low-level languages and the expressiveness of high-level languages.&lt;/p&gt;
+
+&lt;p&gt;In my opinion Rust code will generally be more clear and concise than
+the equivalent solution in Go. The &lt;code&gt;min&lt;/code&gt;, &lt;code&gt;max&lt;/code&gt;, and &lt;code&gt;shift&lt;/code&gt; functions,
+not to mention Rust&amp;rsquo;s &lt;code&gt;try!&lt;/code&gt;/&lt;code&gt;?&lt;/code&gt; vs. Go&amp;rsquo;s &lt;code&gt;if err != nil&lt;/code&gt; pattern,
+demonstrate how generics and macros allow a single implementation of
+common patterns rather than copy &amp;amp; paste.&lt;/p&gt;
+
+&lt;p&gt;Regarding the choice between Rust and Go, I will likely choose Rust by
+default and Go when the solution would benefit from Go&amp;rsquo;s concurrency
+model or richer collection of libraries including those for building
+network clients and servers. In the later case I may even write the
+core of the application in Rust and call into it from Go.&lt;/p&gt;
+</description>
+    </item>
+    
+  </channel>
+</rss>
